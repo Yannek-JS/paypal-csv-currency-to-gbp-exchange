@@ -1,0 +1,18 @@
+{
+    "paypal_csv": { 
+        "dir": "",
+        "explore_recursively": true,
+        "filename_pattern": "paypal*20*.csv"
+    },
+    "hmrc_csv": {
+        "dir": "/home/js/Downloads",
+        "explore_recursively": true,
+        "filename_pattern": "exrates-monthly->>MMYY<<*csv"
+    },
+    "output_csv": {
+        "dir": "",
+        "filename_prefix": "output_",
+        "filename_suffix": "_>>datetime<<.csv",
+        "replace_columns": false
+    }
+}
