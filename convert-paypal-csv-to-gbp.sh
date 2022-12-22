@@ -164,7 +164,7 @@ function exchange_currency {
     if $(echo $ppDirRecursively | grep --quiet --ignore-case --word-regexp 'true')
     # It sets up '-maxdepth' parameter for find command
     then ppMaxFindDepth=''
-    else ppMaxFindDepth='-maxdepth 0'
+    else ppMaxFindDepth='-maxdepth 1'
     fi
     # It finds and process PayPal files in a directory and with a depth specified in $USER_CONFIG_FILE,
     # due to a filename pattern taken from the same config file.
@@ -203,7 +203,7 @@ function exchange_currency {
                     # It sets up '-maxdepth' parameter for find command due to the $USER_CONFIG_FILE setting.
                     if $(echo $hmrcDirRecursively | grep --quiet --ignore-case --word-regexp 'true')
                     then hmrcMaxFindDepth=''
-                    else hmrcMaxFindDepth='-maxdepth 0'
+                    else hmrcMaxFindDepth='-maxdepth 1'
                     fi
                     # $hmrcFoundFiles is an array containing the HMRC files found for PayPal transction date, and 
                     # due to the settings in $USER_CONFIG_FILE: directory, file name pattern, and recursive searching. 
