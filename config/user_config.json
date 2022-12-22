@@ -5,7 +5,7 @@
         "filename_pattern": "paypal*20*.csv"
     },
     "hmrc_csv": {
-        "dir": "/home/js/Downloads",
+        "dir": "/home/user/Downloads",
         "explore_recursively": true,
         "filename_pattern": "exrates-monthly->>MMYY<<*csv"
     },
