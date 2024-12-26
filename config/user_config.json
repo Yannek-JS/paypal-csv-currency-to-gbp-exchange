@@ -1,22 +1,22 @@
 {
     "paypal_csv": { 
-        "dir": "/media/vc1/Dom/Badik/2023_2024_tax",
+        "dir": "/some_dir",
         "explore_recursively": true,
-        "filename_pattern": "paypal_final.csv"
+        "filename_pattern": "paypal_export_*.csv"
     },
     "hmrc_csv": {
-        "dir": "/media/vc1/Dom/Banki_finanse-wspolne_konta/hmrc",
+        "dir": "/some_dir/hmrc",
         "explore_recursively": true,
         "filename_pattern": "monthly_csv_>>YYYY-MM<<.csv",
         "api_url": "https://www.trade-tariff.service.gov.uk/api/v2/exchange_rates/files",
         "download_dir": {
-            "name": "/media/vc1/Dom/Banki_finanse-wspolne_konta/hmrc/self-assessment_2023_2024",
+            "name": "/some_dir/hmrc/download",
             "create": true
         }
     },
     "output_csv": {
         "dir": {
-            "name": "/media/vc1/Dom/Badik/2023_2024_tax",
+            "name": "/some_dir",
             "create": true
         },
         "filename_prefix": "output_",

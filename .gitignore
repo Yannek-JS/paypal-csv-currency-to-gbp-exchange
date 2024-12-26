@@ -1,0 +1,6 @@
+jq_error.log
+test/
+bash-scripts-lib.sh
+config/
+*csv
+*ods
