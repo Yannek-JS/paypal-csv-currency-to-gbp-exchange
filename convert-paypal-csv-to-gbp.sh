@@ -196,6 +196,10 @@ function exchange_currency {
     find $ppDir $ppMaxFindDepth -type f -iname "$ppFilenamePattern" | while [ $? -eq 0 ] && read ppFile;
     do
         echo -e -n "\nProcessing $ppFile file..."
+        expensesNet=0  # Total net expenses value
+        expensesFees=0 # Total expense fees value
+        incomeNet=0    # Total net income value
+        incomeFees=0   # Total income fees value
         if $(echo $@ | grep --quiet --ignore-case --word-regexp '\-\-verbose'); then echo -e '\n\n'; fi
         ppCurrencyCol=0
         ppLineNo=0
@@ -212,6 +216,9 @@ function exchange_currency {
                 ppFeeCol=$(find_column "$ppLine" '","' 'fee')
                 ppNetCol=$(find_column "$ppLine" '","' 'net')
                 ppOnDateCol=$(find_column "$ppLine" '","' '"Date')
+                # Set up the variables to 0 for total incomme and expenses calculation
+                netGBP=0
+                feeGBP=0
             else
                 # Three lines below get the values for exchange to GBP. Comma for formatting the thousands
                 # is removed to perform calculation with bc.
@@ -318,6 +325,24 @@ function exchange_currency {
                     netGBP=$ppNet
                 fi
             fi
+            if $(echo $@ | grep --quiet --ignore-case --word-regexp '\-\-verbose'); then
+                # The total income and expenses values are calculated.
+                # Gross and Net columns seem to be mixed up for the expenses. I think it depends 
+                # on one's perspective though.
+                if [ $(echo "$netGBP < 0" | bc) == 1 ]; then
+                    expensesNet=$(echo "$expensesNet + $grossGBP" | bc)
+                    expensesFees=$(echo "$expensesFees + $feeGBP" | bc)
+                else
+                    incomeNet=$(echo "$incomeNet + $netGBP" | bc)
+                    incomeFees=$(echo "$incomeFees + $feeGBP" | bc)
+                fi
+                echo -e "\n------------- Substantial summary -------------------"
+                echo -e "Total net expenses (with a minus sign, as it is a cost): $expensesNet"
+                echo -e "Total expense fees (with a minus sign, as it is a cost): $expensesFees"
+                echo -e "Total net income: $incomeNet"
+                echo -e "Total income fees (with a minus sign, as it is a cost): $incomeFees"
+                echo -e "-----------------------------------------------------\n"
+            fi
             # An output CSV file is created, unless --no-output-file parameter is passed
             if $(echo $@ | grep --quiet --ignore-case --invert-match --word-regexp '\-\-no-output-file')
             then
@@ -348,6 +373,7 @@ function exchange_currency {
                 fi
             fi
         done
+
     done
     if [ $? -eq 0 ]; then echo 'done'; fi   # That partially solves the issue around exiting functions 
                                             # and pipelines at the moment. TBC 
