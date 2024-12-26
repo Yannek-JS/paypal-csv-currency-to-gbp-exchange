@@ -5,5 +5,5 @@ A Bash script for currency exchange to GBP in PayPal CSV statement, primarily, f
 
 ## Progress
 
-Script is on the early stage of development, not fully tested, however, it is functional.
+Script seems to work well, however, the code may need refactoring itself. Also, it needs some documetation, or `--help` at least.
  
