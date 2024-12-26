@@ -1,18 +1,26 @@
 {
     "paypal_csv": { 
-        "dir": "",
+        "dir": "/some_dir",
         "explore_recursively": true,
-        "filename_pattern": "paypal*20*.csv"
+        "filename_pattern": "paypal_export_*.csv"
     },
     "hmrc_csv": {
-        "dir": "/home/user/Downloads",
+        "dir": "/some_dir/hmrc",
         "explore_recursively": true,
-        "filename_pattern": "exrates-monthly->>MMYY<<*csv"
+        "filename_pattern": "monthly_csv_>>YYYY-MM<<.csv",
+        "api_url": "https://www.trade-tariff.service.gov.uk/api/v2/exchange_rates/files",
+        "download_dir": {
+            "name": "/some_dir/hmrc/download",
+            "create": true
+        }
     },
     "output_csv": {
-        "dir": "",
+        "dir": {
+            "name": "/some_dir",
+            "create": true
+        },
         "filename_prefix": "output_",
         "filename_suffix": "_>>datetime<<.csv",
-        "replace_columns": false
+        "replace_columns": true
     }
 }

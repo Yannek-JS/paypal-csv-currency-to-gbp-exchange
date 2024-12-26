@@ -6,6 +6,10 @@
 # There are exchange rates provided by HMRC used for the currencies exchange 
 # https://www.gov.uk/government/collections/exchange-rates-for-customs-and-vat#monthly-rates
 
+# PayPal CSV files come with the transaction values written as text strings. They are always double quotted
+# in the PayPal CSV files. This script works well just with the transaction values formatted in such way, e.g.
+# "125.88"
+
 SCRIPT_PATH=$(dirname $(realpath $0))    # full path to the directory where the script is located
 #SCRIPT_CONFIG_FILE="${SCRIPT_PATH}/config/script_config.json"   # it is not implemented yet
 USER_CONFIG_FILE="${SCRIPT_PATH}/config/user_config.json"   # all script parameters are stored there, 
@@ -51,7 +55,10 @@ function preconfig() {
             hmrcDirRecursively=$(echo $userConfig | jq ".hmrc_csv.explore_recursively" | sed 's/[\"\ ]//g')
             hmrcFilenamePattern=$(echo $userConfig | jq ".hmrc_csv.filename_pattern" | sed 's/[\"\ ]//g')
             hmrcFilenameDateFormat=$(echo $hmrcFilenamePattern | gawk --field-separator '>>' '{print $2}' | gawk --field-separator '<<' '{print $1}')
-            outputDir=$(echo $userConfig | jq ".output_csv.dir" | sed 's/[\"\ ]//g')
+            hmrcApiUrl=$(echo $userConfig | jq ".hmrc_csv.api_url" | sed 's/[\"\ ]//g')
+            hmrcDownloadDir=$(echo $userConfig | jq ".hmrc_csv.download_dir.name" | sed 's/[\"\ ]//g')
+            hmrcDownloadDirCreate=$(echo $userConfig | jq ".hmrc_csv.download_dir.create" | sed 's/[\"\ ]//g')
+            outputDir=$(echo $userConfig | jq ".output_csv.dir.name" | sed 's/[\"\ ]//g')
             outputFilenamePrefix=$(echo $userConfig | jq ".output_csv.filename_prefix" \
                                                     | sed 's/[\"\ ]//g' \
                                                     | sed "s/>>datetime<</$(date +%F_%T | sed 's/[:\-]//g')/g")
@@ -95,6 +102,21 @@ function prevalidation {
         echo -e "\n${RED}A directory ${ORANGE}$outputDir${RED} for output files does not exist !${SC}"
         quit_now
     fi
+    if [ "$hmrcDownloadDir" == '' ]
+    then
+        hmrcDownloadDir='.'
+    elif ! [ -d "$hmrcDownloadDir" ]; then
+        # check if the directory was set up for creation
+        if $(echo $hmrcDownloadDirCreate | grep --quiet --word-regexp 'true'); then 
+            mkdir --parent "$hmrcDownloadDir"
+            if [ $? -ne 0 ]; then
+                echo -e "\n${RED}An HMRC download directory ${ORANGE}$hmrcDownloadDir${RED} could not be created !${SC}"
+            fi
+        else
+            echo -e "\n${RED}An HMRC download directory ${ORANGE}$hmrcDownloadDir${RED} does not exist !${SC}"
+            quit_now
+        fi
+    fi
 }
 
 
@@ -136,6 +158,9 @@ function get_hmrc_filename {
         'YYYYMM')
             echo $(echo $hmrcFilenamePattern | sed 's/>>YYYYMM<</'$2$1'/g')
             ;;
+        'YYYY-MM')
+            echo $(echo $hmrcFilenamePattern | sed 's/>>YYYY-MM<</'$2\-$1'/g')
+            ;;
         *)
             echo 'HMRC filename date has been specified incorrectly in JSON config file.'
             exit 96
@@ -161,7 +186,7 @@ function check_if_number() {
 
 function exchange_currency {
     # It does the main job. 
-    if $(echo $ppDirRecursively | grep --quiet --ignore-case --word-regexp 'true')
+    if $(echo $ppDirRecursively | grep --quiet --word-regexp 'true')
     # It sets up '-maxdepth' parameter for find command
     then ppMaxFindDepth=''
     else ppMaxFindDepth='-maxdepth 1'
@@ -201,7 +226,7 @@ function exchange_currency {
                     ppOnMonth=$(echo $ppLine | gawk --field-separator '","' '{print $'$ppOnDateCol'}' | gawk --field-separator '/' '{print $2}') 
                     ppOnYear=$(echo $ppLine | gawk --field-separator '","' '{print $'$ppOnDateCol'}' | gawk --field-separator '/' '{print $3}') 
                     # It sets up '-maxdepth' parameter for find command due to the $USER_CONFIG_FILE setting.
-                    if $(echo $hmrcDirRecursively | grep --quiet --ignore-case --word-regexp 'true')
+                    if $(echo $hmrcDirRecursively | grep --quiet --word-regexp 'true')
                     then hmrcMaxFindDepth=''
                     else hmrcMaxFindDepth='-maxdepth 1'
                     fi
@@ -209,70 +234,82 @@ function exchange_currency {
                     # due to the settings in $USER_CONFIG_FILE: directory, file name pattern, and recursive searching. 
                     # The first [0] HMRC file in the array is used for currency exchange.
 #                    echo 'on month: '$ppOnMonth'    on year: '$ppOnYear
-                    hmrcFoundFiles=($(find "$hmrcDir" $hmrcMaxFindDepth -type f -name $(get_hmrc_filename $ppOnMonth $ppOnYear)))
-                    if [ ${#hmrcFoundFiles[@]} -gt 0 ]
-                    then
-                        wsSubst='<ws>'    # The white space substitute for HMRC CSV file to process it easily with 
-                                            #'for' loop
-                        hmrcCurrencyCol=0
-#                        echo 'file: '${hmrcFoundFiles[0]}
-                        # HMRC exchange rates file is being processed... 
-                        for hmrcLine in $(cat "${hmrcFoundFiles[0]}" | sed "s/ /$wsSubst/g")
-                        do
-                            if [ $hmrcCurrencyCol -eq 0 ] && $(echo $hmrcLine | grep --quiet --ignore-case --regexp 'currency.*code')
-                            then
-                                # Firstly, it finds the numbers of the columns that contain a currency code 
-                                # (it was named country code in 2019), and an exchange rate.
-                                hmrcCurrencyCol=$(find_column "$hmrcLine" ',' 'c[ou].*[cr]y.*code')
-                                hmrcExchangeRateCol=$(find_column "$hmrcLine" ',' 'currency.*units.*per')
-                            elif $(echo $hmrcLine | gawk --field-separator ',' '{print $'$hmrcCurrencyCol'}' | grep --quiet --regexp "$ppCurrencyCode")
-                            then
-                                # If the currently processed HMRC row match the PayPal transaction currency, then 
-                                # the exchange is done
-                                hmrcExchangeRate=$(echo $hmrcLine | gawk --field-separator ',' '{print $'$hmrcExchangeRateCol'}')
-                                grossGBP=$(printf "%.2f" $(echo 'scale=4; '$ppGross' / '$hmrcExchangeRate | bc))
-                                feeGBP=$(printf "%.2f" $(echo 'scale=4; '$ppFee' / '$hmrcExchangeRate | bc))
-                                netGBP=$(echo $grossGBP' + '$feeGBP | bc)
-                                # Verbose output to stdout when --verbose parameter was passed during script
-                                # invocation.
-                                if $(echo $@ | grep --quiet --ignore-case --word-regexp '\-\-verbose')
-                                then
-                                    echo "File: $ppFile, line: $ppLineNo"
-                                    echo 'Date: '$(echo $ppLine | gawk --field-separator '","' '{print $'$ppOnDateCol'}' | sed 's/"//g')
-                                    echo 'HMRC exchange rates file: '${hmrcFoundFiles[0]}
-                                    echo "Gross ($ppCurrencyCode): $ppGross, Rate: $hmrcExchangeRate, Gross(GBP): $grossGBP"
-                                    echo "Fee ($ppCurrencyCode): $ppFee, Rate: $hmrcExchangeRate, Fee(GBP): $feeGBP"
-                                    echo "Net ($ppCurrencyCode): $ppNet; Net(GBP) = Gross(GBP) + Fee(GBP); Net(GBP): $netGBP"
-                                    echo
-                                else
-                                    echo -e -n '.'  # as a progress indicator, a dot is displayed, when --verbose 
-                                                    # parameter has not been used.
-                                fi
-                                break;  # As a row for PayPal currency has been found in HMRC file, the file
-                                        # processing is stopped.
-                            fi
-                        done
-                    else
-                        # When HMRC exchange rates file has not been found for the PP transaction, the 
-                        # error message is displayed, output file is being tried to remove, and a current 
-                        # pipeline is quitted.
-                        # 
-                        echo -e "\n\nError ! An HMRC exchange rates file for $ppOnMonth/$ppOnYear was not found. Quitting the script !\n"
-                        # It tries to remove $outputFile if it is being created
-                        if $(echo $@ | grep --quiet --ignore-case --invert-match --word-regexp '\-\-no-output-file') \
-                            && [ -f "$outputFile" ]
-                        then
-                            echo -e -n "Trying to remove an output file $outputFile ....."
-                            rm "$outputFile"
-                            if [ -f "$outputFile" ]
-                            then
-                                echo -e 'failed \nYou need to remove it manually !'
-                            else
-                                echo 'done'
-                            fi
+                    hmrcFilename="$(get_hmrc_filename $ppOnMonth $ppOnYear)"
+                    hmrcFoundFiles=($(find "$hmrcDir" $hmrcMaxFindDepth -type f -name "$hmrcFilename"))
+                    if [ ${#hmrcFoundFiles[@]} -eq 0 ]; then
+                        # When HMRC exchange rates file has not been found for the PP transaction, that file
+                        # is being tried to download based on HMRC API URL specified in the config file.
+                        if $(echo $@ | grep --quiet --ignore-case --word-regexp '\-\-verbose'); then
+                            echo -e "\nDownloading HMRC exchange rates file: $hmrcFilename\n"
                         fi
-                        exit 96
+                        currentDir=$(pwd)
+                        cd "$hmrcDownloadDir"
+                        curl --silent --fail --remote-name "$hmrcApiUrl/$hmrcFilename" 2>/dev/null
+#                        echo "x-rates filename: $(get_hmrc_filename $ppOnMonth $ppOnYear)" 
+#                        curl --verbose --fail --remote-name "$hmrcApiUrl/$(get_hmrc_filename $ppOnMonth $ppOnYear)"
+                        if [ $? -ne 0 ]; then
+                            # the currency exchange file could not be downloaded, hence the error message is
+                            # displayed, output file is being tried to remove, and a current pipeline is quitted.
+                            cd "$currentDir"
+                            echo -e "\n\nError ! An HMRC exchange rates file for $ppOnMonth/$ppOnYear was not found and could not be downloaded. Quitting the script !\n"
+                            # It tries to remove $outputFile if it is being created
+                            if $(echo $@ | grep --quiet --ignore-case --invert-match --word-regexp '\-\-no-output-file') \
+                                && [ -f "$outputFile" ]
+                            then
+                                echo -e -n "Trying to remove an output file $outputFile ....."
+                                rm "$outputFile"
+                                if [ -f "$outputFile" ]
+                                then
+                                    echo -e 'failed \nYou need to remove it manually !'
+                                else
+                                    echo 'done'
+                                fi
+                            fi
+                            exit 96
+                        fi
+                        # Once the file has been downloaded, it makes a single value $hmrcFoundFiles array
+                        hmrcFoundFiles=("$(pwd)/$hmrcFilename")
+                        cd "$currentDir"
                     fi
+                    wsSubst='<ws>'    # The white space substitute for HMRC CSV file to process it easily with 
+                                        #'for' loop
+                    hmrcCurrencyCol=0
+#                    echo 'file: '${hmrcFoundFiles[0]}
+                    # HMRC exchange rates file is being processed... 
+                    for hmrcLine in $(cat "${hmrcFoundFiles[0]}" | sed "s/ /$wsSubst/g"); do
+                        if [ $hmrcCurrencyCol -eq 0 ] && $(echo $hmrcLine | grep --quiet --ignore-case --regexp 'currency.*code')
+                        then
+                            # Firstly, it finds the numbers of the columns that contain a currency code 
+                            # (it was named country code in 2019), and an exchange rate.
+                            hmrcCurrencyCol=$(find_column "$hmrcLine" ',' 'c[ou].*[cr]y.*code')
+                            hmrcExchangeRateCol=$(find_column "$hmrcLine" ',' 'currency.*units.*per')
+                        elif $(echo $hmrcLine | gawk --field-separator ',' '{print $'$hmrcCurrencyCol'}' | grep --quiet --regexp "$ppCurrencyCode")
+                        then
+                            # If the currently processed HMRC row match the PayPal transaction currency, then 
+                            # the exchange is done
+                            hmrcExchangeRate=$(echo $hmrcLine | gawk --field-separator ',' '{print $'$hmrcExchangeRateCol'}')
+                            grossGBP=$(printf "%.2f" $(echo 'scale=4; '$ppGross' / '$hmrcExchangeRate | bc))
+                            feeGBP=$(printf "%.2f" $(echo 'scale=4; '$ppFee' / '$hmrcExchangeRate | bc))
+                            netGBP=$(echo $grossGBP' + '$feeGBP | bc)
+                            # Verbose output to stdout when --verbose parameter was passed during script
+                            # invocation.
+                            if $(echo $@ | grep --quiet --ignore-case --word-regexp '\-\-verbose')
+                            then
+                                echo "File: $ppFile, line: $ppLineNo"
+                                echo 'Date: '$(echo $ppLine | gawk --field-separator '","' '{print $'$ppOnDateCol'}' | sed 's/"//g')
+                                echo 'HMRC exchange rates file: '${hmrcFoundFiles[0]}
+                                echo "Gross ($ppCurrencyCode): $ppGross, Rate: $hmrcExchangeRate, Gross(GBP): $grossGBP"
+                                echo "Fee ($ppCurrencyCode): $ppFee, Rate: $hmrcExchangeRate, Fee(GBP): $feeGBP"
+                                echo "Net ($ppCurrencyCode): $ppNet; Net(GBP) = Gross(GBP) + Fee(GBP); Net(GBP): $netGBP"
+                                echo
+                            else
+                                echo -e -n '.'  # as a progress indicator, a dot is displayed, when --verbose 
+                                                # parameter has not been used.
+                            fi
+                            break;  # As a row for PayPal currency has been found in HMRC file, the file
+                                    # processing is stopped.
+                        fi
+                    done
                 else
                     # If a PayPal currency is GBP in currently processed row.
                     hmrcExchangeRate=1
